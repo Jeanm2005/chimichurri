@@ -16,8 +16,21 @@ from datetime import datetime, timezone
 # Client & constants
 # ---------------------------------------------------------------------------
 
-client = bigquery.Client()
-anthropic_client = Anthropic()
+client = None
+
+def _get_client():
+    global client
+    if client is None:
+        client = bigquery.Client()
+    return client
+
+anthropic_client = None
+
+def _get_anthropic_client():
+    global anthropic_client
+    if anthropic_client is None:
+        anthropic_client = Anthropic()
+    return anthropic_client
 
 PROJECT_ID = "carlos-negron-uprm"
 DATASET    = "database"
@@ -47,8 +60,8 @@ def run_query(query: str, params: list | None = None) -> list[dict]:
     List of row dicts.  Empty list when no rows match.
     """
     job_config = bigquery.QueryJobConfig(query_parameters=params or [])
-    query_job  = client.query(query, job_config=job_config)
-    result     = query_job.result()          # blocks until done
+    query_job  = _get_client().query(query, job_config=job_config)
+    result     = query_job.result()
     return [dict(row) for row in result]
 
 
@@ -783,7 +796,8 @@ def get_genai_advice(user_id: str) -> str:
     else:
         context = "The user is just getting started and has no recent activity yet."
 
-    message = anthropic_client.messages.create(
+    message = _get_anthropic_client().messages.create(
+
         model="claude-sonnet-4-20250514",
         max_tokens=200,
         messages=[

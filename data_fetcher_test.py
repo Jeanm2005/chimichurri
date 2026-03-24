@@ -525,6 +525,250 @@ class TestRunQuery(unittest.TestCase):
         # job_config must have been passed
         self.assertIn("job_config", kwargs)
 
+# ---------------------------------------------------------------------------
+# COMMUNITY / POSTS TESTS
+# ---------------------------------------------------------------------------
+ 
+class TestGetFriendPosts(unittest.TestCase):
+ 
+    @patch("data_fetcher.run_query")
+    def test_returns_list(self, mock_rq):
+        mock_rq.return_value = [
+            {"post_id": "p1", "user_id": "u2", "email": "a@b.com",
+             "content": "Hello!", "created_at": "2024-08-01 10:00:00"}
+        ]
+        result = df.get_friend_posts("u1")
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+ 
+    @patch("data_fetcher.run_query")
+    def test_filters_accepted_friends(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_posts("u1")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("accepted", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_orders_by_timestamp_desc(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_posts("u1")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("DESC", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_passes_user_id_param(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_posts("u1")
+        _, params = mock_rq.call_args[0]
+        self.assertEqual(_param_map(params)["user_id"], "u1")
+ 
+    @patch("data_fetcher.run_query")
+    def test_default_limit_10(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_posts("u1")
+        _, params = mock_rq.call_args[0]
+        self.assertEqual(_param_map(params)["limit"], 10)
+ 
+    @patch("data_fetcher.run_query")
+    def test_joins_friendship_and_users(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_posts("u1")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("friendship", query)
+        self.assertIn("users", query)
+        self.assertIn("JOIN", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_returns_empty_when_no_posts(self, mock_rq):
+        mock_rq.return_value = []
+        result = df.get_friend_posts("u1")
+        self.assertEqual(result, [])
+ 
+ 
+class TestCreatePost(unittest.TestCase):
+ 
+    @patch("data_fetcher.run_query")
+    def test_inserts_into_posts_table(self, mock_rq):
+        mock_rq.return_value = []
+        df.create_post("u1", "Hello world!")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("INSERT", query)
+        self.assertIn("posts", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_returns_post_id_string(self, mock_rq):
+        mock_rq.return_value = []
+        result = df.create_post("u1", "Hello world!")
+        self.assertIsInstance(result, str)
+        try:
+            uuid.UUID(result)
+            valid = True
+        except ValueError:
+            valid = False
+        self.assertTrue(valid)
+ 
+    @patch("data_fetcher.run_query")
+    def test_passes_correct_params(self, mock_rq):
+        mock_rq.return_value = []
+        df.create_post("u1", "Test content")
+        _, params = mock_rq.call_args[0]
+        pm = _param_map(params)
+        self.assertEqual(pm["user_id"], "u1")
+        self.assertEqual(pm["content"], "Test content")
+        self.assertIn("post_id", pm)
+ 
+    @patch("data_fetcher.run_query")
+    def test_generates_unique_post_ids(self, mock_rq):
+        mock_rq.return_value = []
+        id1 = df.create_post("u1", "First post")
+        id2 = df.create_post("u1", "Second post")
+        self.assertNotEqual(id1, id2)
+ 
+ 
+class TestGetUserPosts(unittest.TestCase):
+ 
+    @patch("data_fetcher.run_query")
+    def test_returns_list(self, mock_rq):
+        mock_rq.return_value = [
+            {"post_id": "p1", "user_id": "u1",
+             "content": "My post", "created_at": "2024-08-01"}
+        ]
+        result = df.get_user_posts("u1")
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+ 
+    @patch("data_fetcher.run_query")
+    def test_filters_by_user_id(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_user_posts("u1")
+        query, params = mock_rq.call_args[0]
+        self.assertIn("user_id", query)
+        self.assertEqual(_param_map(params)["user_id"], "u1")
+ 
+    @patch("data_fetcher.run_query")
+    def test_orders_newest_first(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_user_posts("u1")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("DESC", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_default_limit_10(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_user_posts("u1")
+        _, params = mock_rq.call_args[0]
+        self.assertEqual(_param_map(params)["limit"], 10)
+ 
+    @patch("data_fetcher.run_query")
+    def test_returns_empty_when_no_posts(self, mock_rq):
+        mock_rq.return_value = []
+        result = df.get_user_posts("u1")
+        self.assertEqual(result, [])
+ 
+ 
+# ---------------------------------------------------------------------------
+# GENAI ADVICE TESTS
+# ---------------------------------------------------------------------------
+ 
+class TestGetGenaiAdvice(unittest.TestCase):
+ 
+    @patch("data_fetcher.anthropic_client")
+    @patch("data_fetcher.get_user_activity")
+    def test_returns_string(self, mock_activity, mock_anthropic):
+        mock_activity.return_value = [
+            {"sport": "Soccer", "duration_minutes": 60, "activity_type": "join_event"}
+        ]
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[MagicMock(text="Great job! Keep it up!")]
+        )
+        result = df.get_genai_advice("u1")
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
+ 
+    @patch("data_fetcher.anthropic_client")
+    @patch("data_fetcher.get_user_activity")
+    def test_calls_anthropic_api(self, mock_activity, mock_anthropic):
+        mock_activity.return_value = []
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[MagicMock(text="Get out there and play!")]
+        )
+        df.get_genai_advice("u1")
+        mock_anthropic.messages.create.assert_called_once()
+ 
+    @patch("data_fetcher.anthropic_client")
+    @patch("data_fetcher.get_user_activity")
+    def test_calls_get_user_activity(self, mock_activity, mock_anthropic):
+        mock_activity.return_value = []
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[MagicMock(text="Stay active!")]
+        )
+        df.get_genai_advice("u1")
+        mock_activity.assert_called_once_with("u1", limit=5)
+ 
+    @patch("data_fetcher.anthropic_client")
+    @patch("data_fetcher.get_user_activity")
+    def test_works_with_no_activity(self, mock_activity, mock_anthropic):
+        mock_activity.return_value = []
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[MagicMock(text="Welcome! Time to get started!")]
+        )
+        result = df.get_genai_advice("u1")
+        self.assertIsInstance(result, str)
+ 
+    @patch("data_fetcher.anthropic_client")
+    @patch("data_fetcher.get_user_activity")
+    def test_returns_model_text(self, mock_activity, mock_anthropic):
+        mock_activity.return_value = []
+        expected = "You're doing amazing, keep pushing!"
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[MagicMock(text=expected)]
+        )
+        result = df.get_genai_advice("u1")
+        self.assertEqual(result, expected)
+ 
+ 
+# ---------------------------------------------------------------------------
+# FRIEND ACTIVITY TESTS
+# ---------------------------------------------------------------------------
+ 
+class TestGetFriendActivity(unittest.TestCase):
+ 
+    @patch("data_fetcher.run_query")
+    def test_returns_list(self, mock_rq):
+        mock_rq.return_value = [
+            {"activity_id": "a1", "user_id": "u2", "sport": "Soccer"}
+        ]
+        result = df.get_friend_activity("u1")
+        self.assertIsInstance(result, list)
+ 
+    @patch("data_fetcher.run_query")
+    def test_filters_accepted_friends(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_activity("u1")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("accepted", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_orders_by_timestamp_desc(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_activity("u1")
+        query = mock_rq.call_args[0][0]
+        self.assertIn("DESC", query)
+ 
+    @patch("data_fetcher.run_query")
+    def test_default_limit_10(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_activity("u1")
+        _, params = mock_rq.call_args[0]
+        self.assertEqual(_param_map(params)["limit"], 10)
+ 
+    @patch("data_fetcher.run_query")
+    def test_passes_user_id_param(self, mock_rq):
+        mock_rq.return_value = []
+        df.get_friend_activity("u1")
+        _, params = mock_rq.call_args[0]
+        self.assertEqual(_param_map(params)["user_id"], "u1")
+
 
 if __name__ == "__main__":
     unittest.main()

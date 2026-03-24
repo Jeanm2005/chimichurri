@@ -6,9 +6,15 @@ from modules import (
     display_recent_games,
     display_personalized_recommendations
 )
+import community_page
+import activity_page
 
 # --- CONFIG ---
-st.set_page_config(page_title="Sports Connect", layout="wide") # line written by Gemini
+st.set_page_config(page_title="Sports Connect", layout="wide")
+
+# --- SESSION STATE ---
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = "user1"  # default user for now
 
 # --- MOCK DATA ---
 user_location = {"lat": 25.7617, "lng": -80.1918}
@@ -20,33 +26,40 @@ sessions = [
 friends = ["Carlos", "Jean"]
 
 # --- SIDEBAR ---
-with st.sidebar: # line written by Gemini
+with st.sidebar:
     st.title("🏆 Sports Connect")
     st.markdown("---")
-    # Added "Home" as default index
-    menu = st.radio("Menu", ["Home", "Profile", "Find a Game", "Friends"], index=0)
+    menu = st.radio("Menu", ["Home", "Activity", "Community", "Profile", "Find a Game", "Friends"], index=0)
     st.write(f"Currently viewing: **{menu}**")
 
-# --- HEADER ---
-st.header("Sports Connect Unit 2.0 Demo")
-st.divider()
+# --- MAIN CONTENT ---
+if menu == "Home":
+    st.header("Sports Connect Unit 2.0 Demo")
+    st.divider()
+    left_col, right_col = st.columns([1, 1.2], gap="large")
+    with left_col:
+        display_session_summary(sessions)
+        st.write("")
+        display_recent_games(sessions)
+        st.write("")
+        display_personalized_recommendations(sessions, friends)
+    with right_col:
+        display_map(user_location)
 
-# --- MAIN CONTENT LAYOUT ---
-# We split into two main columns (Left 45%, Right 55%)
-left_col, right_col = st.columns([1, 1.2], gap="large") # line written by Gemini
+elif menu == "Activity":
+    activity_page.show_activity_page(st.session_state["user_id"])
 
-with left_col:
-    # 1. Stats Section
-    display_session_summary(sessions)
-    st.write("") # Spacer
+elif menu == "Community":
+    community_page.show_community_page(st.session_state["user_id"])
 
-    # 2. Recent Activity Section
-    display_recent_games(sessions)
-    st.write("") # Spacer
+elif menu == "Profile":
+    st.header("Profile")
+    st.write("Profile page coming soon.")
 
-    # 3. Recommendations Section
-    display_personalized_recommendations(sessions, friends)
+elif menu == "Find a Game":
+    st.header("Find a Game")
+    st.write("Find a game page coming soon.")
 
-with right_col:
-    # 4. Map Section
-    display_map(user_location)
+elif menu == "Friends":
+    st.header("Friends")
+    st.write("Friends page coming soon.")

@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta
 from modules import (
     display_map,
     display_session_summary,
@@ -57,10 +57,18 @@ if menu == "Home":
             loc_name = "Unknown"
             if a.get("location") and isinstance(a["location"], dict):
                 loc_name = a["location"].get("name", "Unknown")
+ 
+            # Use duration_minutes to calculate end time
+            duration = a.get("duration_minutes") or 0
+            start = a["timestamp"]
+            if isinstance(start, str):
+                start = datetime.fromisoformat(start)
+            end = start + timedelta(minutes=duration)
+ 
             sessions.append({
                 "sport":      a["sport"],
-                "start_time": a["timestamp"],
-                "end_time":   a["timestamp"],
+                "start_time": start,
+                "end_time":   end,
                 "location":   loc_name,
             })
  

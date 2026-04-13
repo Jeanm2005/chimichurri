@@ -8,6 +8,7 @@ The friendship table uses a two-row bidirectional model (one row per direction).
 """
 
 from google.cloud import bigquery
+from anthropic import Anthropic
 import uuid
 from datetime import datetime, timezone
 
@@ -15,7 +16,21 @@ from datetime import datetime, timezone
 # Client & constants
 # ---------------------------------------------------------------------------
 
-client = bigquery.Client()
+client = None
+
+def _get_client():
+    global client
+    if client is None:
+        client = bigquery.Client()
+    return client
+
+anthropic_client = None
+
+def _get_anthropic_client():
+    global anthropic_client
+    if anthropic_client is None:
+        anthropic_client = Anthropic()
+    return anthropic_client
 
 PROJECT_ID = "carlos-negron-uprm"
 DATASET    = "database"
@@ -45,8 +60,8 @@ def run_query(query: str, params: list | None = None) -> list[dict]:
     List of row dicts.  Empty list when no rows match.
     """
     job_config = bigquery.QueryJobConfig(query_parameters=params or [])
-    query_job  = client.query(query, job_config=job_config)
-    result     = query_job.result()          # blocks until done
+    query_job  = _get_client().query(query, job_config=job_config)
+    result     = query_job.result()
     return [dict(row) for row in result]
 
 
@@ -602,6 +617,202 @@ def get_user_activity(
             bigquery.ScalarQueryParameter("activity_type", "STRING", activity_type)
         )
     return run_query(query, params)
+
+
+# ---------------------------------------------------------------------------
+# COMMUNITY / POSTS FUNCTIONS
+# ---------------------------------------------------------------------------
+
+def get_friend_activity(user_id: str, limit: int = 10) -> list[dict]:
+    """
+    Return the most recent activity rows from a user's accepted friends,
+    ordered by timestamp descending.
+
+    Parameters
+    ----------
+    user_id : The current user whose friends' activity we want.
+    limit   : Max rows to return (default 10).
+
+    Returns
+    -------
+    List of activity dicts, each including the friend's email for display.
+    Keys: activity_id, user_id, email, event_id, sport, duration_minutes,
+          location, activity_type, timestamp.
+    """
+    query = f"""
+        SELECT
+            a.activity_id,
+            a.user_id,
+            u.email,
+            a.event_id,
+            a.sport,
+            a.duration_minutes,
+            a.location,
+            a.activity_type,
+            a.timestamp
+        FROM {_tbl("user_activity")} a
+        JOIN {_tbl("friendship")} f
+          ON f.friend_id = a.user_id
+        JOIN {_tbl("users")} u
+          ON u.user_id   = a.user_id
+        WHERE f.user_id = @user_id
+          AND f.status  = 'accepted'
+        ORDER BY a.timestamp DESC
+        LIMIT @limit
+    """
+    params = [
+        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        bigquery.ScalarQueryParameter("limit",   "INT64",  limit),
+    ]
+    return run_query(query, params)
+
+
+def create_post(user_id: str, content: str) -> str:
+    """
+    Insert a new post into the posts table.
+
+    Parameters
+    ----------
+    user_id : Author of the post.
+    content : Text content of the post.
+
+    Returns
+    -------
+    The generated post_id (UUID string).
+    """
+    post_id = str(uuid.uuid4())
+    query = f"""
+        INSERT INTO {_tbl("posts")}
+            (post_id, user_id, content, created_at)
+        VALUES
+            (@post_id, @user_id, @content, CURRENT_TIMESTAMP())
+    """
+    params = [
+        bigquery.ScalarQueryParameter("post_id",  "STRING", post_id),
+        bigquery.ScalarQueryParameter("user_id",  "STRING", user_id),
+        bigquery.ScalarQueryParameter("content",  "STRING", content),
+    ]
+    run_query(query, params)
+    return post_id
+
+
+def get_user_posts(user_id: str, limit: int = 10) -> list[dict]:
+    """
+    Return recent posts by a specific user, newest first.
+
+    Parameters
+    ----------
+    user_id : Author whose posts to fetch.
+    limit   : Max rows to return (default 10).
+
+    Returns
+    -------
+    List of post dicts with keys: post_id, user_id, content, created_at.
+    """
+    query = f"""
+        SELECT
+            post_id,
+            user_id,
+            content,
+            created_at
+        FROM {_tbl("posts")}
+        WHERE user_id = @user_id
+        ORDER BY created_at DESC
+        LIMIT @limit
+    """
+    params = [
+        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        bigquery.ScalarQueryParameter("limit",   "INT64",  limit),
+    ]
+    return run_query(query, params)
+
+
+def get_friend_posts(user_id: str, limit: int = 10) -> list[dict]:
+    """
+    Return the most recent posts from a user's accepted friends,
+    ordered by timestamp descending.
+
+    Parameters
+    ----------
+    user_id : The current user whose friends' posts we want.
+    limit   : Max rows to return (default 10).
+
+    Returns
+    -------
+    List of post dicts with keys:
+    post_id, user_id, email, content, created_at.
+    """
+    query = f"""
+        SELECT
+            p.post_id,
+            p.user_id,
+            u.email,
+            p.content,
+            p.created_at
+        FROM {_tbl("posts")} p
+        JOIN {_tbl("friendship")} f
+          ON f.friend_id = p.user_id
+        JOIN {_tbl("users")} u
+          ON u.user_id   = p.user_id
+        WHERE f.user_id = @user_id
+          AND f.status  = 'accepted'
+        ORDER BY p.created_at DESC
+        LIMIT @limit
+    """
+    params = [
+        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        bigquery.ScalarQueryParameter("limit",   "INT64",  limit),
+    ]
+    return run_query(query, params)
+
+
+# ---------------------------------------------------------------------------
+# GENAI ADVICE FUNCTION
+# ---------------------------------------------------------------------------
+
+def get_genai_advice(user_id: str) -> str:
+    """
+    Call the Anthropic API to generate a personalized motivational advice
+    message for the user based on their recent activity.
+
+    Parameters
+    ----------
+    user_id : The user to generate advice for.
+
+    Returns
+    -------
+    A plain-text advice string from the model.
+    """
+    # Pull recent activity to ground the advice
+    recent = get_user_activity(user_id, limit=5)
+
+    if recent:
+        sports_played = list({r["sport"] for r in recent if r.get("sport")})
+        total_minutes = sum(r["duration_minutes"] or 0 for r in recent)
+        context = (
+            f"The user has recently played {', '.join(sports_played) if sports_played else 'various sports'} "
+            f"for a total of {total_minutes} minutes across their last {len(recent)} sessions."
+        )
+    else:
+        context = "The user is just getting started and has no recent activity yet."
+
+    message = _get_anthropic_client().messages.create(
+
+        model="claude-sonnet-4-20250514",
+        max_tokens=200,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"{context} "
+                    "Give them a short (2-3 sentence), friendly tip about joining local sports "
+                    "events, connecting with friends through sports, or getting more involved in "
+                    "their sports community. Be specific to their recent activities if possible."
+                ),
+            }
+        ],
+    )
+    return message.content[0].text
 
 
 # ---------------------------------------------------------------------------

@@ -80,12 +80,14 @@ def _uid() -> str:
 
 def _rand_lat() -> float:
     """Return a random latitude within the South Florida bounding box."""
-    return round(random.uniform(*LAT_RANGE), 6)  # FIX: was using LNG_RANGE
+    # FIX: was incorrectly using LNG_RANGE instead of LAT_RANGE
+    return round(random.uniform(*LAT_RANGE), 6)
 
 
 def _rand_lng() -> float:
     """Return a random longitude within the South Florida bounding box."""
-    return round(random.uniform(*LNG_RANGE), 6)  # FIX: missing function added
+    # FIX: this function was entirely missing from the original
+    return round(random.uniform(*LNG_RANGE), 6)
 
 
 def _rand_ts(days_offset_min: int = -60, days_offset_max: int = 60) -> datetime:
@@ -120,8 +122,8 @@ def generate_users(n: int = 20) -> list[dict]:
     for _ in range(n):
         first = random.choice(FIRST_NAMES)
         last  = random.choice(LAST_NAMES)
-        lat   = _rand_lat()   # FIX: was _rand_lat() called correctly now
-        lng   = _rand_lng()   # FIX: was missing _rand_lng definition
+        lat   = _rand_lat()
+        lng   = _rand_lng()
         num_sports = random.randint(1, 3)
         sports = [
             {"sport": s, "skill_level": random.choice(SKILL_LEVELS)}
@@ -144,8 +146,8 @@ def generate_locations(n: int = 15) -> list[dict]:
     """
     locations = []
     for i in range(n):
-        lat  = _rand_lat()   # FIX: was rand_lat()
-        lng  = _rand_lng()   # FIX: was rand_lng()
+        lat  = _rand_lat()  # FIX: was rand_lat() (missing underscore prefix)
+        lng  = _rand_lng()  # FIX: was rand_lng() (missing underscore prefix)
         name = random.choice(VENUE_NAMES) + (f" #{i+1}" if i >= len(VENUE_NAMES) else "")
         locations.append({
             "location_id": _uid(),
@@ -209,6 +211,7 @@ def generate_events(
             "start_time":  start_time.isoformat(),
             "end_time":    end_time.isoformat(),
             "max_players": random.choice([6, 8, 10, 12, 16, 22]),
+            "skill_level": random.choice(SKILL_LEVELS),
             "visibility":  random.choices(["public", "private"], weights=[85, 15])[0],
             "status":      status,
             "created_at":  _rand_ts(-60, -1).isoformat(),
@@ -217,19 +220,20 @@ def generate_events(
     return events
 
 
-def generate_friendships(user_ids: list[str], max_pairs: int | None = None) -> list[dict]:  # FIX: none → None
+def generate_friendships(user_ids: list[str], max_pairs: int | None = None) -> list[dict]:
     """
     Generate bidirectional friendship rows (two rows per pair, one per direction).
 
     Produces at most len(user_ids) * 2 unique pairs, capped at `max_pairs`.
     """
+    # FIX: None was lowercase 'none' in original type hint comment
     if max_pairs is None:
         max_pairs = len(user_ids) * 2
 
     all_pairs = set()
     rows      = []
 
-    shuffled = user_ids[:]  # FIX: was user.ids[:]
+    shuffled = user_ids[:]  # FIX: was user.ids[:] (dot instead of underscore)
     random.shuffle(shuffled)
 
     for i, uid in enumerate(shuffled):
@@ -305,7 +309,7 @@ def generate_event_participants(
 
 def generate_user_activity(
     user_ids: list[str],
-    event_ids: list[str],   # FIX: was lsit[str]
+    event_ids: list[str],   # FIX: was lsit[str] (transposed letters)
     rows_per_user: int = 10,
 ) -> list[dict]:
     """
@@ -316,8 +320,8 @@ def generate_user_activity(
         for _ in range(rows_per_user):
             activity_type = random.choice(ACTIVITY_TYPES)
             sport         = random.choice(SPORTS)
-            lat           = _rand_lat()   # FIX: was _rand.lat()
-            lng           = _rand_lng()   # FIX: was _rand.lng()
+            lat           = _rand_lat()  # FIX: was _rand.lat() (dot instead of underscore)
+            lng           = _rand_lng()  # FIX: was _rand.lng() (dot instead of underscore)
             ts            = _rand_ts(-60, 0)
             duration      = (random.randint(30, 180) if activity_type == "session_complete" else None)  # FIX: was randit
             event_id      = (
@@ -529,33 +533,33 @@ def seed_bigquery(data: dict) -> None:
     Insert all generated mock data into BigQuery tables.
 
     Insertion order respects logical dependencies:
-      users → locations → events → friendships → participants → activity → recs
+      users -> locations -> events -> friendships -> participants -> activity -> recs
     """
     bq = bigquery.Client()
-    print("Seeding BigQuery…")
+    print("Seeding BigQuery...")
 
-    print(f"  → {len(data['users'])} users")
+    print(f"  -> {len(data['users'])} users")
     _bq_insert_users(bq, data["users"])
 
-    print(f"  → {len(data['locations'])} locations")
+    print(f"  -> {len(data['locations'])} locations")
     _bq_insert_locations(bq, data["locations"])
 
-    print(f"  → {len(data['events'])} events")
+    print(f"  -> {len(data['events'])} events")
     _bq_insert_events(bq, data["events"])
 
-    print(f"  → {len(data['friendships'])} friendship rows")
+    print(f"  -> {len(data['friendships'])} friendship rows")
     _bq_insert_friendships(bq, data["friendships"])
 
-    print(f"  → {len(data['participants'])} participant rows")
+    print(f"  -> {len(data['participants'])} participant rows")
     _bq_insert_participants(bq, data["participants"])
 
-    print(f"  → {len(data['activity'])} activity rows")
+    print(f"  -> {len(data['activity'])} activity rows")
     _bq_insert_activity(bq, data["activity"])
 
-    print(f"  → {len(data['recommendations'])} recommendation rows")
+    print(f"  -> {len(data['recommendations'])} recommendation rows")
     _bq_insert_recommendations(bq, data["recommendations"])
 
-    print("Done. ✓")
+    print("Done.")
 
 
 # ---------------------------------------------------------------------------
@@ -612,8 +616,8 @@ def main():
         seed_bigquery(data)
 
     if args.dry_run or (not args.seed_bq and not args.export):
-        print("\n(Dry run — no data written. Use --seed-bq or --export to persist.)")
+        print("\n(Dry run -- no data written. Use --seed-bq or --export to persist.)")
 
 
 if __name__ == "__main__":
-    main()ls
+    main()

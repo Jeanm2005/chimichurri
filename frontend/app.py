@@ -2,7 +2,15 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 from collections import Counter
-import data_fetcher
+import local_data as data_fetcher
+
+USER_LAT, USER_LNG = 25.7617, -80.1918
+MOCK_EVENTS  = data_fetcher.get_events_for_ui(USER_LAT, USER_LNG)
+MOCK_FRIENDS = data_fetcher.get_friends_for_ui(data_fetcher.CURRENT_USER_ID)
+
+# Use the generated user instead of hardcoded "Carlos Martinez"
+if "user_id" not in st.session_state:
+    st.session_state["user_id"] = data_fetcher.CURRENT_USER_ID
 
 # ── PAGE CONFIG & CUSTOM CSS ──
 st.set_page_config(
@@ -363,78 +371,9 @@ if "current_page" not in st.session_state:
 if "joined_events" not in st.session_state:
     st.session_state["joined_events"] = set()
 
-# ── MOCK DATA ──
-SPORTS = ["Soccer", "Basketball", "Volleyball", "Tennis"]
+if "radius_km" not in st.session_state:
+    st.session_state["radius_km"] = 5.0
 
-MOCK_EVENTS = [
-    {
-        "id": "e1",
-        "sport": "Soccer",
-        "emoji": "⚽",
-        "venue": "Central Park Field 3",
-        "address": "123 Park Ave, Manhattan",
-        "time": "Sat Mar 28 · 10:00–12:00",
-        "duration": "2h",
-        "joined": 6,
-        "total": 10,
-        "skill": "Intermediate",
-        "status": "Open",
-        "dist": 1.2,
-        "color": "#22c55e"
-    },
-    {
-        "id": "e2",
-        "sport": "Basketball",
-        "emoji": "🏀",
-        "venue": "Downtown Court",
-        "address": "456 Main St, Brooklyn",
-        "time": "Sun Mar 29 · 14:00–16:00",
-        "duration": "2h",
-        "joined": 8,
-        "total": 10,
-        "skill": "Advanced",
-        "status": "Open",
-        "dist": 2.8,
-        "color": "#f97316"
-    },
-    {
-        "id": "e3",
-        "sport": "Volleyball",
-        "emoji": "🏐",
-        "venue": "Beach Arena",
-        "address": "789 Beach Rd, Queens",
-        "time": "Mon Mar 30 · 18:00–21:00",
-        "duration": "3h",
-        "joined": 10,
-        "total": 10,
-        "skill": "Beginner",
-        "status": "Full",
-        "dist": 4.1,
-        "color": "#a78bfa"
-    },
-    {
-        "id": "e4",
-        "sport": "Tennis",
-        "emoji": "🎾",
-        "venue": "City Club",
-        "address": "22 Club Dr, Manhattan",
-        "time": "Tue Mar 31 · 09:00–10:30",
-        "duration": "1.5h",
-        "joined": 3,
-        "total": 4,
-        "skill": "Advanced",
-        "status": "Open",
-        "dist": 3.5,
-        "color": "#facc15"
-    },
-]
-
-MOCK_FRIENDS = [
-    {"name": "Alex Johnson", "initials": "AJ", "sport": "Soccer", "emoji": "⚽", "online": True},
-    {"name": "Maria Garcia", "initials": "MG", "sport": "Basketball", "emoji": "🏀", "online": True},
-    {"name": "David Kim", "initials": "DK", "sport": "Tennis", "emoji": "🎾", "online": False},
-    {"name": "Sarah Williams", "initials": "SW", "sport": "Volleyball", "emoji": "🏐", "online": True},
-]
 
 # ── SIDEBAR NAVIGATION ──
 with st.sidebar:
@@ -448,22 +387,36 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     st.markdown("---")
-    
-    pages = ["Home", "Find a Game", "Messages", "Activity", "Profile"]
+
+    pages = ["Home", "Find a Game", "Messages", "Activity"]
     selected = st.radio("Navigation", pages, index=0, label_visibility="collapsed")
-    
+    st.session_state["current_page"] = selected.lower().repalce(" ", "_")
+
     st.markdown("---")
-    st.markdown("""
-    <div class="user-section">
-        <div class="user-avatar">CM</div>
-        <div class="user-info">
-            <div class="user-name">Carlos Martinez</div>
-            <div class="user-email">carlos@email.com</div>
+    st.markdwon("<div class='section-label'>📍 Search Radius</div>", unsafe_allow_html=True)
+    st.session_state["radius_km"] = st.slider(
+        "Radius (km)", min_value=1.0, max_value=20.0,
+        value=st.session_state["radius_km"], step=0.5,
+        label_visibility="collapsed",
+    )
+    st.caption(f"Showing games within **{st.session_state['radius_km']} km**")
+
+    st.markdown("---")
+    col_user, col_gear = st.columns([4, 1])
+    with col_user:
+        st.markdown("""
+        <div class="user-section">
+            <div class="user-avatar">CM</div>
+            <div class="user-info">
+                <div class="user-name">Carlos Martinez</div>
+                <div class="user-email">carlos@email.com</div>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.session_state["current_page"] = selected.lower().replace(" ", "_")
+        """, unsafe_allow_html=True)
+    with col_gear:
+        if st.button("⚙️", help="Settings / Profile", key="settings_btn"):
+            st.session_state["current_page"] = "settings"
+            st.rerun()
 
 # ── HELPER FUNCTIONS ──
 def get_sport_icon(sport):
@@ -474,33 +427,46 @@ def render_event_card(event):
     """Render a single event card"""
     is_joined = event["id"] in st.session_state["joined_events"]
     is_full = event["status"] == "Full"
-    spots = event["total"] - event["joined"]
-    
+
+    # If the user joined, reflect that in the displayed count
+    display_joined = event["joined"] + (1 if is_joined else 0)
+    spots_left = event["total"] - display_joined
+
     col1, col2 = st.columns([4, 1])
     with col1:
         st.markdown(f"<div class='card-sport'><span style='font-size:17px'>{event['emoji']}</span>{event['sport']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='card-venue'>📍 {event['venue']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='card-address'>{event['address']}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='card-time'>📅 {event['time']} · {event['duration']}</div>", unsafe_allow_html=True)
-        
+
         col_meta1, col_meta2, col_meta3 = st.columns([1, 1, 1])
         with col_meta1:
-            st.markdown(f"<div class='card-meta'>👥 {event['joined']}/{event['total']}</div>", unsafe_allow_html=True)
+            # Show updated player count in green if user joined
+            count_color = "#22c55e" if is_joined else "#ccc"
+            st.markdown(
+                f"<div class='card-meta' style='color:{count_color}'>👥 {display_joined}/{event['total']}</div>",
+                unsafe_allow_html=True
+            )
         with col_meta2:
             st.markdown(f"<span class='skill-pill'>{event['skill']}</span>", unsafe_allow_html=True)
         with col_meta3:
             st.markdown(f"<div class='card-meta'>{event['dist']} km</div>", unsafe_allow_html=True)
-    
+
     with col2:
-        if is_full:
+        if is_full and not is_joined:
             st.button("Full", disabled=True, use_container_width=True, key=f"btn_{event['id']}")
         elif is_joined:
-            if st.button("Cancel", use_container_width=True, key=f"cancel_{event['id']}"):
+            if st.button("✓ Joined", use_container_width=True, key=f"cancel_{event['id']}",
+                         help="Click to cancel"):
                 st.session_state["joined_events"].discard(event["id"])
+                st.toast(f"You left {event['venue']}", icon="👋")
                 st.rerun()
         else:
+            if spots_left <= 2 and spots_left > 0:
+                st.caption(f"⚠️ {spots_left} spot{'s' if spots_left > 1 else ''} left")
             if st.button("Join", use_container_width=True, key=f"join_{event['id']}"):
                 st.session_state["joined_events"].add(event["id"])
+                st.toast(f"You joined {event['venue']}! 🎉", icon="✅")
                 st.rerun()
 
 def display_map(user_location):
@@ -565,30 +531,38 @@ if page == "home":
 
 elif page == "find_a_game":
     st.markdown("<h1 class='page-title'>Find a Game</h1>", unsafe_allow_html=True)
-    
+
     search = st.text_input("Search sport, venue, or location…", placeholder="Search…")
     st.markdown("---")
-    
-    # Two-column layout: events on left, map on right
+
     col_events, col_map = st.columns([1.5, 1])
-    
+
     with col_events:
-        st.markdown("<div class='section-label'>Available Games</div>", unsafe_allow_html=True)
-        
-        filtered_events = MOCK_EVENTS
+        radius = st.session_state["radius_km"]
+        st.markdown(
+            f"<div class='section-label'>Games within {radius} km</div>",
+            unsafe_allow_html=True
+        )
+
+        # Apply radius filter first, then text search
+        filtered_events = [e for e in MOCK_EVENTS if e["dist"] <= radius]
         if search:
-            filtered_events = [e for e in MOCK_EVENTS if search.lower() in e["venue"].lower() or search.lower() in e["sport"].lower()]
-        
+            filtered_events = [
+                e for e in filtered_events
+                if search.lower() in e["venue"].lower()
+                or search.lower() in e["sport"].lower()
+            ]
+
         if not filtered_events:
-            st.info("No games match your filters")
+            st.info(f"No games found within {radius} km. Try increasing the radius in the sidebar.")
         else:
             for event in filtered_events:
                 render_event_card(event)
-    
+
     with col_map:
-        # Display map with default location
         user_location = {"lat": 25.7617, "lng": -80.1918}
         display_map(user_location)
+        st.caption("📌 Map shows all venues. Use the radius slider to filter the game list.")
 
 elif page == "messages":
     st.markdown("<h1 class='page-title'>Messages</h1>", unsafe_allow_html=True)
@@ -637,49 +611,57 @@ elif page == "activity":
     }
     st.dataframe(pd.DataFrame(activity_data), use_container_width=True, hide_index=True)
 
-elif page == "profile":
-    st.markdown("<h1 class='page-title'>Profile</h1>", unsafe_allow_html=True)
-    
+elif page == "settings":
+    st.markdown("<h1 class='page-title'>Settings & Profile</h1>", unsafe_allow_html=True)
+
+    # --- Profile card (same as before) ---
     st.markdown("""
-    <div style="background-color: #1e1e1e; border: 0.5px solid #2a2a2a; border-radius: 12px; padding: 18px; margin-bottom: 24px;">
+    <div style="background-color: #1e1e1e; border: 0.5px solid #2a2a2a; border-radius: 12px;
+                padding: 18px; margin-bottom: 24px;">
         <div style="display: flex; gap: 14px; align-items: flex-start; flex-wrap: wrap;">
-            <div style="width: 56px; height: 56px; border-radius: 50%; background-color: #1e3a2a; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 500; color: #22c55e; flex-shrink: 0;">CM</div>
+            <div style="width: 56px; height: 56px; border-radius: 50%; background-color: #1e3a2a;
+                        display: flex; align-items: center; justify-content: center;
+                        font-size: 18px; font-weight: 500; color: #22c55e; flex-shrink: 0;">CM</div>
             <div style="flex: 1; min-width: 0;">
                 <div style="font-size: 17px; font-weight: 500; color: #fff; margin-bottom: 3px;">Carlos Martinez</div>
                 <div style="font-size: 13px; color: #666; margin-bottom: 10px;">carlos.martinez@email.com</div>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <span style="font-size: 12px; padding: 4px 10px; border-radius: 20px; background-color: #2a2a2a; border: 0.5px solid #333; color: #ccc;">⚽ Soccer · Intermediate</span>
-                    <span style="font-size: 12px; padding: 4px 10px; border-radius: 20px; background-color: #2a2a2a; border: 0.5px solid #333; color: #ccc;">🏀 Basketball · Beginner</span>
+                    <span style="font-size: 12px; padding: 4px 10px; border-radius: 20px;
+                                 background-color: #2a2a2a; border: 0.5px solid #333; color: #ccc;">
+                        ⚽ Soccer · Intermediate</span>
+                    <span style="font-size: 12px; padding: 4px 10px; border-radius: 20px;
+                                 background-color: #2a2a2a; border: 0.5px solid #333; color: #ccc;">
+                        🏀 Basketball · Beginner</span>
                 </div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
+
     st.markdown("---")
     st.markdown("<div class='section-label'>Settings</div>", unsafe_allow_html=True)
-    
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown("**Notifications**")
         st.caption("Game invites, messages, reminders")
     with col2:
         st.toggle("", value=True, key="notif_toggle")
-    
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown("**Location Services**")
         st.caption("Used for nearby game discovery")
     with col2:
         st.toggle("", value=True, key="loc_toggle")
-    
+
     col1, col2 = st.columns([3, 1])
     with col1:
         st.markdown("**Dark Mode**")
         st.caption("Always on dark theme")
     with col2:
         st.toggle("", value=True, key="dark_toggle")
-    
+
     st.markdown("---")
     if st.button("Sign Out", use_container_width=True):
         st.info("Signed out successfully")

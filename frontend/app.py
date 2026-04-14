@@ -390,10 +390,10 @@ with st.sidebar:
 
     pages = ["Home", "Find a Game", "Messages", "Activity"]
     selected = st.radio("Navigation", pages, index=0, label_visibility="collapsed")
-    st.session_state["current_page"] = selected.lower().repalce(" ", "_")
+    st.session_state["current_page"] = selected.lower().replace(" ", "_")
 
     st.markdown("---")
-    st.markdwon("<div class='section-label'>📍 Search Radius</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-label'>📍 Search Radius</div>", unsafe_allow_html=True)
     st.session_state["radius_km"] = st.slider(
         "Radius (km)", min_value=1.0, max_value=20.0,
         value=st.session_state["radius_km"], step=0.5,
@@ -426,11 +426,12 @@ def get_sport_icon(sport):
 def render_event_card(event):
     """Render a single event card"""
     is_joined = event["id"] in st.session_state["joined_events"]
-    is_full = event["status"] == "Full"
 
     # If the user joined, reflect that in the displayed count
     display_joined = event["joined"] + (1 if is_joined else 0)
     spots_left = event["total"] - display_joined
+
+    is_full = spots_left <= 0
 
     col1, col2 = st.columns([4, 1])
     with col1:
@@ -533,9 +534,18 @@ elif page == "find_a_game":
     st.markdown("<h1 class='page-title'>Find a Game</h1>", unsafe_allow_html=True)
 
     search = st.text_input("Search sport, venue, or location…", placeholder="Search…")
+    
+    all_sports = ["All"] + sorted(list(set(e["sport"] for e in MOCK_EVENTS)))
+    selected_sport = st.selectbox("Filter by Game", all_sports)
+    
     st.markdown("---")
 
-    col_events, col_map = st.columns([1.5, 1])
+    col_map, col_events = st.columns([1, 1.5])
+
+    with col_map:
+        user_location = {"lat": 25.7617, "lng": -80.1918}
+        display_map(user_location)
+        st.caption("📌 Map shows all venues. Use the radius slider to filter the game list.")
 
     with col_events:
         radius = st.session_state["radius_km"]
@@ -552,17 +562,15 @@ elif page == "find_a_game":
                 if search.lower() in e["venue"].lower()
                 or search.lower() in e["sport"].lower()
             ]
+            
+        if selected_sport != "All":
+            filtered_events = [e for e in filtered_events if e["sport"] == selected_sport]
 
         if not filtered_events:
             st.info(f"No games found within {radius} km. Try increasing the radius in the sidebar.")
         else:
             for event in filtered_events:
                 render_event_card(event)
-
-    with col_map:
-        user_location = {"lat": 25.7617, "lng": -80.1918}
-        display_map(user_location)
-        st.caption("📌 Map shows all venues. Use the radius slider to filter the game list.")
 
 elif page == "messages":
     st.markdown("<h1 class='page-title'>Messages</h1>", unsafe_allow_html=True)

@@ -13,5 +13,8 @@ COPY . ./
 # Install any needed packages specified in requirements.txt
 RUN pip install -r requirements.txt
 
+# Add the root directory to Python path so imports work
+ENV PYTHONPATH="/app:${PYTHONPATH}"
+
 # The main command to run when the container starts.
-ENTRYPOINT ["streamlit", "run", "app.py"]
+ENTRYPOINT ["streamlit", "run", "frontend/app.py"]

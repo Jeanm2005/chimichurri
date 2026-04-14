@@ -23,7 +23,7 @@ import random
 from datetime import datetime, timezone
 from math import radians, sin, cos, sqrt, atan2
 
-import mock_data_generator as gen
+import mock_generator as gen
 
 # ---------------------------------------------------------------------------
 # Generate + index the full dataset once at import time.
